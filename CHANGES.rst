@@ -39,6 +39,8 @@ Bugs Fixed
 
   [davisagli]
 
+- Use unicode transaction-notes to support ZODB 5.
+  [pbauer]
 
 Features Added
 ++++++++++++++
