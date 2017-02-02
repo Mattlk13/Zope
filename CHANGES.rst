@@ -42,9 +42,13 @@ Bugs Fixed
 - Use unicode transaction-notes to support ZODB 5.
   [pbauer]
  
- - Move _html and _error_html to HTTPBaseResponse to support views that return
-   a HTML `(title, body)` tuple in WSGIResponses.
-   [MatthewWilkes]
+- Move _html and _error_html to HTTPBaseResponse to support views that return
+  a HTML `(title, body)` tuple in WSGIResponses.
+  [MatthewWilkes]
+
+- Make the WSGIPublisher convert some exceptions from zope.publisher
+  and zope.security (Unauthorized, NotFound, BadRequest, Redirect)
+  into the corresponding exceptions from zExceptions. [davisagli]
 
 Features Added
 ++++++++++++++

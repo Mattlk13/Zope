@@ -25,13 +25,22 @@ from transaction.interfaces import TransientError
 from zExceptions import (
     HTTPOk,
     HTTPRedirection,
+    BadRequest,
+    NotFound,
+    Redirect,
     Unauthorized,
 )
 from ZODB.POSException import ConflictError
 from zope.component import queryMultiAdapter
 from zope.event import notify
 from zope.security.management import newInteraction, endInteraction
+from zope.security.interfaces import Unauthorized as zope_security_Unauthorized
 from zope.publisher.skinnable import setDefaultSkin
+from zope.publisher.interfaces import (
+    NotFound as zope_publisher_NotFound,
+    BadRequest as zope_publisher_BadRequest,
+    Redirect as zope_publisher_Redirect,
+)
 
 from ZPublisher.HTTPRequest import WSGIRequest
 from ZPublisher.HTTPResponse import WSGIResponse
@@ -169,6 +178,16 @@ def _publish_response(request, response, module_info, _publish=publish):
         with transaction_pubevents(request):
             response = _publish(request, module_info)
     except Exception as exc:
+        # Convert zope 3 exceptions to zExceptions exceptions
+        if isinstance(exc, zope_security_Unauthorized):
+            exc = Unauthorized(exc.message)
+        elif isinstance(exc, zope_publisher_Redirect):
+            exc = Redirect(exc.location)
+        elif isinstance(exc, zope_publisher_BadRequest):
+            exc = BadRequest(exc.message)
+        elif isinstance(exc, zope_publisher_NotFound):
+            exc = NotFound(exc.message)
+
         if request.environ.get('wsgi.handleErrors', True):
             response.setStatus(exc.__class__)
             if isinstance(exc, HTTPRedirection):
@@ -187,7 +206,7 @@ def _publish_response(request, response, module_info, _publish=publish):
             if isinstance(exc, (HTTPRedirection, Unauthorized)):
                 return response
 
-        raise
+        raise exc
 
     return response
 
