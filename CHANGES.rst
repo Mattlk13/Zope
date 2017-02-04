@@ -41,7 +41,7 @@ Bugs Fixed
 
 - Use unicode transaction-notes to support ZODB 5.
   [pbauer]
- 
+
 - Move _html and _error_html to HTTPBaseResponse to support views that return
   a HTML `(title, body)` tuple in WSGIResponses.
   [MatthewWilkes]
@@ -49,6 +49,9 @@ Bugs Fixed
 - Make the WSGIPublisher convert some exceptions from zope.publisher
   and zope.security (Unauthorized, NotFound, BadRequest, Redirect)
   into the corresponding exceptions from zExceptions. [davisagli]
+
+- Removed meta type column from manage_main, because of also removed icons
+  [MrTango]
 
 Features Added
 ++++++++++++++
