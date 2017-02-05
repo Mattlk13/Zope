@@ -53,6 +53,9 @@ Bugs Fixed
 - Removed meta type column from manage_main, because of also removed icons
   [MrTango]
 
+- Be more verbose when reraising exceptions.
+  [pbauer]
+
 Features Added
 ++++++++++++++
 
@@ -84,6 +87,9 @@ Features Added
 
 Restructuring
 +++++++++++++
+
+- Removed xml-export.
+  [maurits, pbauer]
 
 - Add back ZCacheable support.
 
@@ -171,8 +177,6 @@ Restructuring
 - Remove ZMI copy/cut/paste/rename and re-ordering features.
 
 - Drop `OFS.History` functionality.
-
-- Removed ZMI export/import feature.
 
 - Drop ZopeUndo dependency and move undo management to the control panel.
 

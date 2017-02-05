@@ -206,7 +206,8 @@ def _publish_response(request, response, module_info, _publish=publish):
             if isinstance(exc, (HTTPRedirection, Unauthorized)):
                 return response
 
-        raise exc
+        exc_info = sys.exc_info()
+        raise exc_info[0], exc_info[1], exc_info[2]
 
     return response
 

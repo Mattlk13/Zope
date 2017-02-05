@@ -14,6 +14,7 @@
 """
 
 from cgi import escape
+from cStringIO import StringIO
 from logging import getLogger
 import copy
 import fnmatch
@@ -31,6 +32,7 @@ from AccessControl.Permissions import view_management_screens
 from AccessControl.Permissions import access_contents_information
 from AccessControl.Permissions import delete_objects
 from AccessControl.Permissions import ftp_access
+from AccessControl.Permissions import import_export_objects
 from AccessControl import getSecurityManager
 from AccessControl.ZopeSecurityPolicy import getRoles
 from Acquisition import aq_base, aq_acquire, aq_parent
@@ -59,6 +61,7 @@ from OFS.event import ObjectWillBeAddedEvent
 from OFS.event import ObjectWillBeRemovedEvent
 from OFS.Lockable import LockableItem
 from OFS.subscribers import compatibilityCall
+
 import collections
 
 if bbb.HAS_ZSERVER:
@@ -81,7 +84,6 @@ LOG = getLogger('ObjectManager')
 BadRequestException = BadRequest
 
 bad_id = re.compile(r'[^a-zA-Z0-9-_~,.$\(\)# @]').search
-
 
 def checkValidId(self, id, allow_dup=0):
     # If allow_dup is false, an error will be raised if an object
@@ -568,6 +570,90 @@ class ObjectManager(CopyContainer,
                    o.isPrincipiaFolderish:
                     r.append(o)
         return r
+
+    security.declareProtected(import_export_objects, 'manage_exportObject')
+    def manage_exportObject(self, id='', download=None,
+                            RESPONSE=None,REQUEST=None):
+        """Exports an object to a file and returns that file."""
+        if not id:
+            # can't use getId() here (breaks on "old" exported objects)
+            id=self.id
+            if hasattr(id, 'im_func'): id=id()
+            ob=self
+        else: ob=self._getOb(id)
+
+        suffix = 'zexp'
+
+        if download:
+            f=StringIO()
+            ob._p_jar.exportFile(ob._p_oid, f)
+            if RESPONSE is not None:
+                RESPONSE.setHeader('Content-type','application/data')
+                RESPONSE.setHeader('Content-Disposition',
+                                   'inline;filename=%s.%s' % (id, suffix))
+            return f.getvalue()
+
+        cfg = getConfiguration()
+        f = os.path.join(cfg.clienthome, '%s.%s' % (id, suffix))
+        ob._p_jar.exportFile(ob._p_oid, f)
+
+        if REQUEST is not None:
+            return self.manage_main(self, REQUEST,
+                manage_tabs_message=
+                '"%s" successfully exported to "%s"' % (id,f),
+                title = 'Object exported')
+
+
+    security.declareProtected(import_export_objects, 'manage_importExportForm')
+    manage_importExportForm=DTMLFile('dtml/importExport',globals())
+
+    security.declareProtected(import_export_objects, 'manage_importObject')
+    def manage_importObject(self, file, REQUEST=None, set_owner=1):
+        """Import an object from a file"""
+        dirname, file=os.path.split(file)
+        if dirname:
+            raise BadRequest, 'Invalid file name %s' % escape(file)
+
+        for impath in self._getImportPaths():
+            filepath = os.path.join(impath, 'import', file)
+            if os.path.exists(filepath):
+                break
+        else:
+            raise BadRequest, 'File does not exist: %s' % escape(file)
+
+        imported = self._importObjectFromFile(
+            filepath, verify=bool(REQUEST), set_owner=set_owner)
+        id = imported.id
+        if hasattr(id, '__func__'):
+            id = id()
+
+        if REQUEST is not None:
+            return self.manage_main(
+                self, REQUEST,
+                manage_tabs_message='"%s" successfully imported' % id,
+                title='Object imported',
+                update_menu=1)
+
+    def _importObjectFromFile(self, filepath, verify=1, set_owner=1):
+        # locate a valid connection
+        connection=self._p_jar
+        obj=self
+
+        while connection is None:
+            obj=obj.aq_parent
+            connection=obj._p_jar
+        ob=connection.importFile(filepath)
+        if verify: self._verifyObjectPaste(ob, validate_src=0)
+        id = ob.id
+        if hasattr(id, '__func__'):
+            id = id()
+        self._setObject(id, ob, set_owner=set_owner)
+
+        # try to make ownership implicit if possible in the context
+        # that the object was imported into.
+        ob=self._getOb(id)
+        ob.manage_changeOwnershipType(explicit=0)
+        return ob
 
     def _getImportPaths(self):
         cfg = getConfiguration()
