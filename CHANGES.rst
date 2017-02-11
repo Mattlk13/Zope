@@ -20,23 +20,10 @@ Bugs Fixed
 - Don't copy items the user is not allowed to view.
   From Products.PloneHotfix20161129.  [maurits]
 
-- Fix WSGIPublisher's handling of Unauthorized exceptions and redirects
-  to be more backwards-compatible:
-
-  - Include an exception message when raising Unauthorized exceptions
-    from `WSGIResponse.unauthorized`.
-
-  - Call `WSGIResponse._unauthorized` without passing an exception,
-    for compatibility with PluggableAuthService which overrides this method
-    on response instances.
-
-  - Don't render exception views or call `WSGIResponse._unauthorized`
-    when published by a test browser with `handleErrors = False`.
-
-  - Don't raise an exception when `WSGIResponse.redirect` is called
-    (these redirects should be followed even when the test browser uses
-    `handleErrors = False`).
-
+- Make the WSGIPublisher normalize HTTP exception classes based on name
+  (for example, any exception named NotFound will be converted
+  into `zExceptions.NotFound`). This restores compatibility with
+  similar behavior of the old publisher.
   [davisagli]
 
 - Use unicode transaction-notes to support ZODB 5.
@@ -46,15 +33,11 @@ Bugs Fixed
   a HTML `(title, body)` tuple in WSGIResponses.
   [MatthewWilkes]
 
-- Make the WSGIPublisher convert some exceptions from zope.publisher
-  and zope.security (Unauthorized, NotFound, BadRequest, Redirect)
-  into the corresponding exceptions from zExceptions. [davisagli]
-
 - Removed meta type column from manage_main, because of also removed icons
   [MrTango]
 
 - Be more verbose when reraising exceptions.
-  [pbauer]
+  [pbauer, davisagli]
 
 Features Added
 ++++++++++++++
@@ -76,6 +59,7 @@ Features Added
     - WebOb = 1.7.1
     - WebTest = 2.0.24
     - zdaemon = 4.2.0
+    - zExceptions = 3.6
     - zope.deprecation = 4.2.0
     - zope.interface = 4.3.3
     - zope.testbrowser = 5.0
@@ -87,6 +71,12 @@ Features Added
 
 Restructuring
 +++++++++++++
+
+- Testbrowser and functional tests turn HTTPExceptions into responses.
+
+- Remove special handling of redirect and unauthorized exceptions from
+  the WSGI publisher. These are now always raised as exceptions, to
+  match the behavior of all other HTTPExceptions.
 
 - Removed xml-export.
   [maurits, pbauer]

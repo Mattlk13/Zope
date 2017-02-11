@@ -20,27 +20,20 @@ import sys
 from AccessControl.SecurityManagement import newSecurityManager
 from AccessControl.SecurityManagement import noSecurityManager
 from six.moves._thread import allocate_lock
+from six import reraise
 import transaction
 from transaction.interfaces import TransientError
 from zExceptions import (
     HTTPOk,
     HTTPRedirection,
-    BadRequest,
-    NotFound,
-    Redirect,
     Unauthorized,
+    upgradeException,
 )
 from ZODB.POSException import ConflictError
 from zope.component import queryMultiAdapter
 from zope.event import notify
 from zope.security.management import newInteraction, endInteraction
-from zope.security.interfaces import Unauthorized as zope_security_Unauthorized
 from zope.publisher.skinnable import setDefaultSkin
-from zope.publisher.interfaces import (
-    NotFound as zope_publisher_NotFound,
-    BadRequest as zope_publisher_BadRequest,
-    Redirect as zope_publisher_Redirect,
-)
 
 from ZPublisher.HTTPRequest import WSGIRequest
 from ZPublisher.HTTPResponse import WSGIResponse
@@ -173,47 +166,46 @@ def publish(request, module_info):
     return response
 
 
-def _publish_response(request, response, module_info, _publish=publish):
-    try:
-        with transaction_pubevents(request):
-            response = _publish(request, module_info)
-    except Exception as exc:
-        # Convert zope 3 exceptions to zExceptions exceptions
-        if isinstance(exc, zope_security_Unauthorized):
-            exc = Unauthorized(exc.message)
-        elif isinstance(exc, zope_publisher_Redirect):
-            exc = Redirect(exc.location)
-        elif isinstance(exc, zope_publisher_BadRequest):
-            exc = BadRequest(exc.message)
-        elif isinstance(exc, zope_publisher_NotFound):
-            exc = NotFound(exc.message)
+def err_hook(exc, request):
+    response = request.response
 
-        if request.environ.get('wsgi.handleErrors', True):
-            response.setStatus(exc.__class__)
-            if isinstance(exc, HTTPRedirection):
-                response._redirect(exc)
-            elif isinstance(exc, Unauthorized):
-                response._unauthorized()
+    # Normalize HTTP exceptions
+    # (For example turn zope.publisher NotFound into zExceptions NotFound)
+    t, v = upgradeException(exc.__class__, None)
+    if not isinstance(exc, t):
+        exc = t(str(exc))
 
-            view = queryMultiAdapter((exc, request), name=u'index.html')
-            if view is not None:
-                parents = request.get('PARENTS')
-                if parents:
-                    view.__parent__ = parents[0]
-                response.setBody(view())
-                return response
+    # This should happen inside zExceptions, but the realm is only
+    # defined on the premade response or in the module_info and
+    # can be changed during publishing.
+    if isinstance(exc, Unauthorized):
+        exc.setRealm(response.realm)
 
-            if isinstance(exc, (HTTPRedirection, Unauthorized)):
-                return response
+    view = queryMultiAdapter((exc, request), name=u'index.html')
+    if view is not None:
+        # Wrap the view in the context in which the exception happened.
+        parents = request.get('PARENTS')
+        if parents:
+            view.__parent__ = parents[0]
 
-        exc_info = sys.exc_info()
-        raise exc_info[0], exc_info[1], exc_info[2]
+        # Set status and headers from the exception on the response,
+        # which would usually happen while calling the exception
+        # with the (environ, start_response) WSGI tuple.
+        response.setStatus(exc.__class__)
+        if hasattr(exc, 'headers'):
+            for key, value in exc.headers.items():
+                response.setHeader(key, value)
 
-    return response
+        # Set the response body to the result of calling the view.
+        response.setBody(view())
+        return response
+
+    reraise(type(exc), exc, sys.exc_info()[2])
 
 
 def publish_module(environ, start_response,
                    _publish=publish,  # only for testing
+                   _err_hook=err_hook,
                    _response=None,
                    _response_factory=WSGIResponse,
                    _request=None,
@@ -233,8 +225,11 @@ def publish_module(environ, start_response,
 
         for i in range(getattr(request, 'retry_max_count', 3) + 1):
             try:
-                response = _publish_response(
-                    request, response, module_info, _publish=_publish)
+                with transaction_pubevents(request):
+                    try:
+                        response = _publish(request, module_info)
+                    except Exception as exc:
+                        response = _err_hook(exc, request)
                 break
             except (ConflictError, TransientError) as exc:
                 if request.supports_retry():

@@ -296,32 +296,44 @@ class TestPublishModule(unittest.TestCase, PlacelessSetup):
         self.assertEqual(_after1._called_with, ((), {}))
         self.assertEqual(_after2._called_with, ((), {}))
 
-    def test_swallows_Unauthorized(self):
+    def test_raises_unauthorized(self):
         from zExceptions import Unauthorized
         environ = self._makeEnviron()
         start_response = DummyCallable()
         _publish = DummyCallable()
         _publish._raise = Unauthorized('TESTING')
-        app_iter = self._callFUT(environ, start_response, _publish)
-        self.assertEqual(app_iter, ('', ''))
-        (status, headers), kw = start_response._called_with
-        self.assertEqual(status, '401 Unauthorized')
-        self.assertTrue(('Content-Length', '0') in headers)
-        self.assertEqual(kw, {})
+        try:
+            self._callFUT(environ, start_response, _publish)
+        except Unauthorized as exc:
+            self.assertEqual(exc.getStatus(), 401)
+            self.assertEqual(
+                exc.headers['WWW-Authenticate'], 'basic realm="Zope"')
 
-    def test_swallows_Redirect(self):
+    def test_raises_redirect(self):
         from zExceptions import Redirect
         environ = self._makeEnviron()
         start_response = DummyCallable()
         _publish = DummyCallable()
         _publish._raise = Redirect('/redirect_to')
-        app_iter = self._callFUT(environ, start_response, _publish)
-        self.assertEqual(app_iter, ('', ''))
-        (status, headers), kw = start_response._called_with
-        self.assertEqual(status, '302 Found')
-        self.assertTrue(('Location', '/redirect_to') in headers)
-        self.assertTrue(('Content-Length', '0') in headers)
-        self.assertEqual(kw, {})
+        try:
+            self._callFUT(environ, start_response, _publish)
+        except Redirect as exc:
+            self.assertEqual(exc.getStatus(), 302)
+            self.assertEqual(exc.headers['Location'], '/redirect_to')
+
+    def test_upgrades_ztk_not_found(self):
+        from zExceptions import NotFound
+        from zope.publisher.interfaces import NotFound as ZTK_NotFound
+        environ = self._makeEnviron()
+        start_response = DummyCallable()
+        _publish = DummyCallable()
+        _publish._raise = ZTK_NotFound(object(), 'name_not_found')
+        try:
+            self._callFUT(environ, start_response, _publish)
+        except ZTK_NotFound:
+            self.fail('ZTK exception raised, expected zExceptions.')
+        except NotFound as exc:
+            self.assertTrue('name_not_found' in str(exc))
 
     def test_response_body_is_file(self):
         from io import BytesIO
@@ -448,6 +460,18 @@ class TestPublishModule(unittest.TestCase, PlacelessSetup):
         start_response = DummyCallable()
         _publish = DummyCallable()
         _publish._raise = NotFound('argh')
+        app_iter = self._callFUT(environ, start_response, _publish)
+        body = ''.join(app_iter)
+        self.assertEqual(start_response._called_with[0][0], '404 Not Found')
+        self.assertTrue('Exception View: NotFound' in body)
+
+    def testCustomExceptionViewZTKNotFound(self):
+        from zope.publisher.interfaces import NotFound as ZTK_NotFound
+        registerExceptionView(INotFound)
+        environ = self._makeEnviron()
+        start_response = DummyCallable()
+        _publish = DummyCallable()
+        _publish._raise = ZTK_NotFound(object(), 'argh')
         app_iter = self._callFUT(environ, start_response, _publish)
         body = ''.join(app_iter)
         self.assertEqual(start_response._called_with[0][0], '404 Not Found')
